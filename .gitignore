@@ -1,0 +1,59 @@
+# MCP Document Merge Agent - Git Ignore File
+
+# This file specifies intentionally untracked files that Git should ignore.
+# It helps keep the repository clean by excluding temporary files, dependencies, outputs, and other non-source files.
+
+# Virtual Environment
+# Ignore directories where virtual environments are typically created
+.venv/
+venv/
+env/
+
+# Python Cache and Temporary Files
+# Ignore Python bytecode, cache, and temporary build files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Output Directory for Merged Documents
+# Ignore the directory where merged documents are saved
+output/
+
+# Input Directory for Documents (if not versioned)
+# Uncomment the following line if you don't want to track input documents
+# documents/
+
+# Environment Variable Files
+# Ignore files containing sensitive configuration like API keys
+.env
+.env.local
+
+# IDE and Editor Files
+# Ignore configuration and temporary files created by IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System Files
+# Ignore operating system-specific files
+.DS_Store
+Thumbs.db
+
+# Miscellaneous
+# Ignore log files, temporary files, and backups
+*.log
+*.tmp
+*.bak
+*.backup
+
+# Project-Specific Temporary Files
+# Ignore temporary files created during document conversion (e.g., PDF to DOCX)
+temp_*.docx
+temp_pdf_conversion.docx 
