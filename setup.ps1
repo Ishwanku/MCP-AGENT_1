@@ -28,20 +28,12 @@ $venvPipPath = ".venv\Scripts\pip.exe"
 Start-Process -FilePath $venvPythonPath -ArgumentList "-m pip install --upgrade pip" -Wait -NoNewWindow
 
 # Install the project with all optional dependencies
-Start-Process -FilePath $venvPipPath -ArgumentList "install -e .[all]" -Wait -NoNewWindow
+Start-Process -FilePath $venvPipPath -ArgumentList "install -e ." -Wait -NoNewWindow
 # Continue even if exit code is non-zero, as installation might still succeed
 Write-Host "Project installation attempted, proceeding with additional dependencies"
 
 # Explicitly install individual optional dependencies to ensure they are available
 Write-Host "Ensuring individual LLM provider dependencies are installed..."
-Start-Process -FilePath $venvPipPath -ArgumentList "install ollama" -Wait -NoNewWindow
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to install ollama, continuing with setup"
-}
-Start-Process -FilePath $venvPipPath -ArgumentList "install openai" -Wait -NoNewWindow
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to install openai, continuing with setup"
-}
 Start-Process -FilePath $venvPipPath -ArgumentList "install google-ai-generativelanguage" -Wait -NoNewWindow
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Failed to install google-ai-generativelanguage for Gemini support"
