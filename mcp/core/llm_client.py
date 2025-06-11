@@ -1,18 +1,10 @@
 import logging
-from typing import Optional
-import google.generativeai as genai
+from typing import List
 from .config import Settings
+import google.generativeai as genai
 
-# Configure logging
+# Logger setup (assumes logging is configured in config.py or a dedicated module)
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("mcp_agent.log")
-    ]
-)
 
 class LLMClient:
     """Client for interacting with large language models, currently supporting Gemini."""
@@ -43,40 +35,18 @@ class LLMClient:
                 logger.error(f"Failed to initialize Gemini client: {e}")
                 raise
     
-    def extract_context(self, text: str, max_length: int = 500) -> str:
-        """Extract key context and points from the provided text."""
+    def generate_summary(self, text: str, max_length: int = 1000, sections: List[str] = None) -> str:
+        """Generate a summary of the provided text with specified sections and length."""
         if not self.is_available():
-            logger.warning("Context extraction unavailable: Client not configured")
-            return "Context extraction unavailable: Client not configured"
+            logger.warning("Content generation unavailable: Client not configured")
+            return "Content generation unavailable: Client not configured"
         
+        sections = sections or ["main topic", "key points", "context", "recommendations"]
         prompt = f"""
-        Extract the most important context and key points from the following text.
-        Focus on main ideas, critical information, and essential details.
-        Keep the summary concise, within {max_length} characters.
-        
+        Summarize the following text.
+        Include: {', '.join(sections)}
+        Keep the summary within {max_length} characters.
         Text: {text}
-        
-        Format the response with clear sections and use **bold** for important terms.
-        """
-        return self.generate_content(prompt)
-    
-    def summarize_text(self, text: str, max_length: int = 1000) -> str:
-        """Summarize the provided text with key details and recommendations."""
-        if not self.is_available():
-            logger.warning("Summarization unavailable: Client not configured")
-            return "Summarization unavailable: Client not configured"
-        
-        prompt = f"""
-        Create a comprehensive summary of the following text.
-        Include:
-        1. Main topic and purpose
-        2. Key points and findings
-        3. Important context and background
-        4. Critical information
-        5. Recommendations or action items
-        
-        Text: {text}
-        
         Format the response with clear sections and use **bold** for important terms.
         """
         return self.generate_content(prompt)
@@ -91,7 +61,7 @@ class LLMClient:
         """Generate content using the configured LLM provider."""
         if not self.is_available():
             logger.warning("Content generation unavailable: Client not configured")
-            return ""
+            return "Content generation unavailable: Client not configured"
         
         logger.info(f"Generating content with {self.provider} using model {self.model}")
         try:

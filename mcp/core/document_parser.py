@@ -1,73 +1,85 @@
-import os
+import json
+import re
 from pathlib import Path
 from typing import Dict, List, Any
 import docx
 from docx.shared import Pt, RGBColor
-import json
-from dotenv import load_dotenv
-import google.generativeai as genai
+from .llm_client import LLMClient
+from .config import Settings
 
+# Document parser class to process, analyze and summarize
 class DocumentParser:
-    def __init__(self):
-        self.gemini_client = None
-        self._init_gemini()
+
+    # If user give the llm_client then it uses that if not given then it makes default LLMClient by using setting() 
+    def __init__(self, llm_client: LLMClient = None):
+        """Initialize the DocumentParser with an optional LLMClient."""
+        self.llm_client = llm_client or LLMClient(Settings())
     
-    def _init_gemini(self):
-        load_dotenv()
-        api_key = os.getenv('GEMINI_API_KEY')
-        if api_key:
-            genai.configure(api_key=api_key)
-            self.gemini_client = genai.GenerativeModel('gemini-2.0-flash')
+    def _set_style_properties(self, style, font_name: str = 'Arial', size: int = 11, bold: bool = False):
+        """Set common style properties for a given style."""
+        style.font.name = font_name
+        style.font.size = Pt(size)
+        style.font.bold = bold
+        style.font.color.rgb = RGBColor(0, 0, 0)
     
     def _init_document_styles(self, doc: docx.Document):
+        """Initialize document styles for consistent formatting."""
         styles = doc.styles
-        
-        # Title style
-        title_style = styles['Title']
-        title_font = title_style.font
-        title_font.name = 'Arial'
-        title_font.size = Pt(24)
-        title_font.bold = True
-        title_font.color.rgb = RGBColor(0, 0, 0)
-        
-        # Heading 1 style
-        h1_style = styles['Heading 1']
-        h1_font = h1_style.font
-        h1_font.name = 'Arial'
-        h1_font.size = Pt(18)
-        h1_font.bold = True
-        h1_font.color.rgb = RGBColor(0, 0, 0)
-        
-        # Heading 2 style
-        h2_style = styles['Heading 2']
-        h2_font = h2_style.font
-        h2_font.name = 'Arial'
-        h2_font.size = Pt(16)
-        h2_font.bold = True
-        h2_font.color.rgb = RGBColor(0, 0, 0)
-        
-        # Heading 3 style
-        h3_style = styles['Heading 3']
-        h3_font = h3_style.font
-        h3_font.name = 'Arial'
-        h3_font.size = Pt(14)
-        h3_font.bold = True
-        h3_font.color.rgb = RGBColor(0, 0, 0)
-        
-        # Normal text style
-        normal_style = styles['Normal']
-        normal_font = normal_style.font
-        normal_font.name = 'Arial'
-        normal_font.size = Pt(11)
-        normal_font.color.rgb = RGBColor(0, 0, 0)
+        self._set_style_properties(styles['Title'], size=24, bold=True)
+        self._set_style_properties(styles['Heading 1'], size=18, bold=True)
+        self._set_style_properties(styles['Heading 2'], size=16, bold=True)
+        self._set_style_properties(styles['Heading 3'], size=14, bold=True)
+        self._set_style_properties(styles['Normal'], size=11)
     
     def _get_safe_style(self, doc: docx.Document, style_name: str) -> docx.styles.style._ParagraphStyle:
+        """Get a style from the document, falling back to 'Normal' if not found."""
         try:
             return doc.styles[style_name]
         except KeyError:
             return doc.styles['Normal']
     
+    def _add_styled_paragraph(self, doc: docx.Document, text: str, style_name: str) -> docx.text.paragraph.Paragraph:
+        """Add a styled paragraph to the document."""
+        para = doc.add_paragraph()
+        para.style = self._get_safe_style(doc, style_name)
+        para.add_run(text)
+        return para
+    
+    def _handle_error(self, operation: str, doc_name: str = None, error: Exception = None) -> Dict[str, Any]:
+        """Handle errors and return a structured error response."""
+        error_msg = f"Error {operation}: {str(error)}" if error else f"Error {operation}"
+        print(error_msg)
+        return {"document_name": doc_name, "analysis": error_msg} if doc_name else error_msg
+    
+    def _parse_markdown_line(self, doc: docx.Document, line: str) -> docx.text.paragraph.Paragraph:
+        """Parse a Markdown line and apply appropriate Word styles."""
+        # Check for Markdown headings (e.g., ## Heading)
+        heading_match = re.match(r'^(#+)\s+(.+)$', line.strip())
+        if heading_match:
+            level = len(heading_match.group(1))  # Number of # symbols
+            heading_text = heading_match.group(2).strip()
+            # Map Markdown heading levels to Word styles
+            style_map = {1: 'Heading 1', 2: 'Heading 2', 3: 'Heading 3'}
+            style_name = style_map.get(level, 'Normal')
+            para = doc.add_paragraph()
+            para.style = self._get_safe_style(doc, style_name)
+            para.add_run(heading_text)
+            return para
+        
+        # Process non-heading lines with bold text
+        para = doc.add_paragraph()
+        para.style = self._get_safe_style(doc, 'Normal')
+        if line.strip():
+            parts = line.split('**')
+            for i, part in enumerate(parts):
+                if i % 2 == 1:  # Bold text between **
+                    para.add_run(part).bold = True
+                else:
+                    para.add_run(part)
+        return para
+    
     def process_document_set(self, doc_set: Dict[str, List[str]], input_dir: Path) -> Dict[str, Any]:
+        """Process a set of documents and generate a summary."""
         set_name = doc_set['name']
         documents = doc_set['documents']
         document_analyses = []
@@ -81,7 +93,7 @@ class DocumentParser:
                 doc_analysis = self.analyze_document(text_content, doc_name)
                 document_analyses.append(doc_analysis)
             except Exception as e:
-                print(f"Error processing {doc_name}: {e}")
+                document_analyses.append(self._handle_error("processing document", doc_name, e))
         
         set_summary = self.generate_comprehensive_summary(document_analyses)
         return {
@@ -91,110 +103,51 @@ class DocumentParser:
         }
     
     def analyze_document(self, text: str, doc_name: str) -> Dict[str, Any]:
+        """Analyze a single document using the LLM client."""
         try:
-            prompt = f"""
-            Analyze the following document and provide:
-            1. Main topic and purpose
-            2. Key points and findings
-            3. Important context and background
-            4. Critical information
-            5. Recommendations or action items
-            
-            Document: {text}
-            
-            Format the response with clear sections and use **bold** for important terms.
-            """
-            
-            if self.gemini_client:
-                response = self.gemini_client.generate_content(prompt)
-                analysis = response.text
-            else:
-                analysis = "LLM not configured"
-            
-            return {
-                "document_name": doc_name,
-                "analysis": analysis
-            }
+            analysis = self.llm_client.generate_summary(
+                text,
+                max_length=1000,
+                sections=["main topic and purpose", "key points and findings", "important context", "critical information", "recommendations"]
+            )
+            return {"document_name": doc_name, "analysis": analysis}
         except Exception as e:
-            print(f"Error analyzing document {doc_name}: {e}")
-            return {
-                "document_name": doc_name,
-                "analysis": "Error analyzing document"
-            }
+            return self._handle_error("analyzing document", doc_name, e)
     
     def generate_comprehensive_summary(self, document_analyses: List[Dict[str, Any]]) -> str:
+        """Generate a comprehensive summary of multiple document analyses."""
         try:
             prompt = f"""
-            Create a comprehensive summary of the following documents, incorporating their individual analyses.
-            
-            Document Analyses:
-            {json.dumps(document_analyses, indent=2)}
-            
-            Please provide a summary that includes:
-            1. Executive Summary
-            2. Key Findings from Each Document
-            3. Important Context and Background
-            4. Critical Information
-            5. Cross-Document Insights
-            6. Recommendations and Action Items
-            
-            Format the response with clear sections and use **bold** for important terms and headings.
+            Create a comprehensive summary of the following documents.
+            Document Analyses: {json.dumps(document_analyses, indent=2)}
+            Include: Executive Summary, Key Findings, Important Context, Critical Information, Cross-Document Insights, Recommendations
+            Format with clear sections and use **bold** for important terms.
             """
-            
-            if self.gemini_client:
-                response = self.gemini_client.generate_content(prompt)
-                summary = response.text
-            else:
-                summary = "LLM not configured"
-            
-            return summary
+            return self.llm_client.generate_content(prompt)
         except Exception as e:
-            print(f"Error generating comprehensive summary: {e}")
-            return "Error generating summary"
+            return self._handle_error("generating comprehensive summary", error=e)
     
     def create_context_document(self, document_sets: List[Dict[str, List[str]]], input_dir: Path, output_file: str) -> docx.Document:
+        """Create a Word document with summaries for each document set."""
         doc = docx.Document()
         self._init_document_styles(doc)
         
-        title = doc.add_paragraph()
-        title.style = self._get_safe_style(doc, 'Heading 1')
-        title.add_run(f"Document Set Analysis: {output_file}")
-        
-        toc = doc.add_paragraph()
-        toc.style = self._get_safe_style(doc, 'Heading 2')
-        toc.add_run("Table of Contents")
+        self._add_styled_paragraph(doc, f"Document Set Analysis: {output_file}", 'Heading 1')
+        self._add_styled_paragraph(doc, "Table of Contents", 'Heading 2')
         
         for i, doc_set in enumerate(document_sets, 1):
-            toc_item = doc.add_paragraph()
-            toc_item.style = self._get_safe_style(doc, 'Normal')
-            toc_item.add_run(f"{i}. {doc_set['name']}")
-            
-            set_heading = doc.add_paragraph()
-            set_heading.style = self._get_safe_style(doc, 'Heading 2')
-            set_heading.add_run(f"{i}. {doc_set['name']}")
+            self._add_styled_paragraph(doc, f"{i}. {doc_set['name']}", 'Normal')
+            self._add_styled_paragraph(doc, f"{i}. {doc_set['name']}", 'Heading 2')
             
             set_info = self.process_document_set(doc_set, input_dir)
             
-            summary_heading = doc.add_paragraph()
-            summary_heading.style = self._get_safe_style(doc, 'Heading 3')
-            summary_heading.add_run("Summary")
+            self._add_styled_paragraph(doc, "Summary", 'Heading 3')
             
             summary_text = set_info['summary']
-            current_para = doc.add_paragraph()
-            current_para.style = self._get_safe_style(doc, 'Normal')
-            
             paragraphs = summary_text.split('\n')
             for para_text in paragraphs:
                 if para_text.strip():
-                    parts = para_text.split('**')
-                    for i, part in enumerate(parts):
-                        if i % 2 == 1:
-                            current_para.add_run(part).bold = True
-                        else:
-                            current_para.add_run(part)
-                    
-                    current_para = doc.add_paragraph()
-                    current_para.style = self._get_safe_style(doc, 'Normal')
+                    self._parse_markdown_line(doc, para_text)
             
             doc.add_paragraph("---" * 20, style=self._get_safe_style(doc, 'Normal'))
         
