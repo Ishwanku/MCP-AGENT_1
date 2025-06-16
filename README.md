@@ -1,70 +1,189 @@
 # MCP Document Merge Agent
 
-A powerful document processing and merging tool that combines multiple documents into a single, well-structured Word document. It uses Google's Gemini AI for intelligent document analysis and summarization.
+A Python-based document processing and merging tool that uses AI to analyze and combine multiple documents into a comprehensive summary. The tool processes documents in parallel using LangGraph and provides structured output with consistent formatting.
 
 ## Features
 
-- **Document Merging**: Combines multiple documents into a single Word document
-- **Intelligent Analysis**: Uses Gemini AI to analyze and understand document content
-- **Structured Output**: Creates well-formatted documents with proper styling and organization
-- **Context Preservation**: Maintains important formatting and structure from source documents
+- **Parallel Document Processing**
+  - Processes multiple folders simultaneously
+  - Handles multiple documents per folder
+  - Uses LangGraph for workflow management
+  - Automatic section numbering and organization
+
+- **AI-Powered Analysis**
+  - Azure OpenAI integration for document analysis
+  - Retry mechanism for robust LLM calls
+  - Structured output with consistent formatting
+  - Comprehensive document summaries
+
+- **Document Organization**
+  - Section-based organization
+  - Automatic section numbering
+  - Consistent heading styles and colors
+  - Configurable document styles
+
+- **Output Format**
+  The merged document includes:
+  - Main Points
+  - Document Summaries
+  - Key Findings
+  - Important Information
+  - Cross-references between documents
+
+- **Styling Features**
+  - Configurable document styles
+  - Consistent formatting throughout
+  - Customizable fonts, colors, and spacing
+  - Professional document layout
+
+## Prerequisites
+
+- Python 3.9 or higher
+- Azure OpenAI API access
+- Required Python packages (see requirements.txt)
 
 ## Installation
 
 1. Clone the repository:
+
 ```bash
-git clone https://github.com/yourusername/mcp-agent.git
+git clone <repository-url>
 cd mcp-agent
 ```
 
-2. Install dependencies:
+2.Create and activate a virtual environment:
+
 ```bash
-pip install -e .
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-3. Create a `.env` file in the project root with your API key:
-```env
+3.Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+4.Set up environment variables:
+
+```bash
+# Required settings
 DOCUMENT_AGENT_API_KEY=your_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key_here
+AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
+
+# Optional settings (if you want to override defaults)
+HOST=0.0.0.0
+PORT=8000
+DOCUMENT_AGENT_PORT=8000
+OUTPUT_DIR=output
+API_BASE_URL=http://127.0.0.1:8000
+
+# Optional Azure Search settings (if using search functionality)
+AZURE_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
+AZURE_SEARCH_KEY=your_search_service_key
+AZURE_SEARCH_INDEX_NAME=documents
+
+# Optional Content Safety settings
+CONTENT_SAFETY_ENABLED=true
+CONTENT_SAFETY_THRESHOLD=0.7
+
+# Optional LLM settings
+LLM_DEFAULT_MAX_TOKENS=1000
+LLM_DEFAULT_TEMPERATURE=0.7
 ```
 
 ## Usage
 
-1. Start the server:
+1. Place your documents in the `documents` folder, organized by sections:
+
+``
+documents/
+├── Section1/
+│   ├── document1.docx
+│   └── document2.docx
+├── Section2/
+│   ├── document3.docx
+│   └── document4.docx
+└── Section3/
+    ├── document5.docx
+    └── document6.docx
+``
+
+2.Run the document processor:
+
 ```bash
-python run.py
+python src/parallel_document_processor.py
 ```
 
-2. Use the merge_documents.py script to process documents:
-```bash
-python merge_documents.py
-```
-
-## Configuration
-
-The following environment variables can be configured in the `.env` file:
-
-- `DOCUMENT_AGENT_API_KEY`: API key for the document agent
-- `GEMINI_API_KEY`: API key for Gemini AI
+3.The merged document will be created in the `output` folder with a timestamp.
 
 ## Project Structure
 
-- `mcp/core/`: Core functionality
-  - `document_parser.py`: Document processing and merging
-  - `llm_client.py`: Gemini AI integration
-  - `config.py`: Configuration settings
+``
+mcp-agent/
+├── src/
+│   ├── mcp/
+│   │   ├── agents/
+│   │   │   └── document_merge_agent.py
+│   │   └── core/
+│   │       ├── document_parser.py
+│   │       ├── llm_client.py
+│   │       ├── config.py
+│   │       └── utils.py
+│   └── parallel_document_processor.py
+├── documents/
+│   ├── Section1/
+│   ├── Section2/
+│   └── Section3/
+├── output/
+├── .env
+└── requirements.txt
+``
 
-- `merge_documents.py`: Main script for document processing
-- `run.py`: Server startup script
+## Configuration
 
-## Contributing
+The project uses a hierarchical configuration system:
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+1. **Environment Variables**
+   - Loaded from `.env` file
+   - Can override default settings
+   - Required for API keys and endpoints
 
-## License
+2. **Document Styles**
+   - Configurable through settings
+   - Default styles for different heading levels
+   - Customizable fonts, colors, and spacing
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+3. **LLM Settings**
+   - Configurable token limits
+   - Adjustable temperature
+   - Retry mechanisms
+
+## API Endpoints
+
+The service provides the following endpoints:
+
+- `POST /tools/merge_documents`: Merge multiple documents
+- `POST /tools/llm`: Generate content using LLM
+- `GET /`: Health check endpoint
+
+## Error Handling
+
+The system includes comprehensive error handling for:
+
+- Missing documents
+- API failures
+- LLM processing errors
+- Document formatting issues
+- Configuration validation
+
+## Retry Mechanism
+
+The system implements a robust retry mechanism for LLM calls:
+
+- Maximum 3 retry attempts
+- Exponential backoff
+- Detailed error logging
+- Exception handling

@@ -56,13 +56,25 @@ def install_dependencies():
     
     # Then install the package in editable mode
     print("Installing MCP Document Merge Agent...")
-    subprocess.run([str(python), "-m", "pip", "install", "-e"], capture_output=True, text=True)
+    subprocess.run([str(python), "-m", "pip", "install", "-e", "."], capture_output=True, text=True)
     print("Installation of MCP Agent.")
 
 #Run FastAPI through uvicorn
 def start_agent():
     print("Starting MCP Document Merge Agent...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Get the current project directory
+    project_dir = Path(__file__).parent.parent.absolute()
+    print(f"Watching directory: {project_dir}")
+    
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000,
+        reload=True,  # Enable auto-reload
+        reload_dirs=[str(project_dir)],  # Watch the entire project directory
+        reload_delay=1.0,  # Wait 1 second before reloading
+        log_level="info"  # Show detailed logs
+    )
 
 #Orchestrate the setup chain if any error occurs return with proper error message
 def main():
