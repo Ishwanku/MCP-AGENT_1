@@ -121,7 +121,7 @@ python src/parallel_document_processor.py
 
 ## Project Structure
 
-``
+```
 mcp-agent/
 ├── src/
 │   ├── mcp/
@@ -140,7 +140,7 @@ mcp-agent/
 ├── output/
 ├── .env
 └── requirements.txt
-``
+```
 
 ## Configuration
 
