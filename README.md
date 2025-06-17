@@ -35,7 +35,8 @@ mcp-agent/
 ├── documents/
 ├── output/
 ├── .env
-├── requirements.txt
+├── pyproject.toml
+├── setup.ps1
 └── README.md
 ```
 
