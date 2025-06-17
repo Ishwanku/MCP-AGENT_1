@@ -1,187 +1,141 @@
 # MCP Document Merge Agent
 
-A Python-based document processing and merging tool that uses AI to analyze and combine multiple documents into a comprehensive summary. The tool processes documents in parallel using LangGraph and provides structured output with consistent formatting.
+A Python-based document processing and merging tool that uses AI (Azure OpenAI) to analyze and combine multiple documents into structured summaries. The system supports parallel processing, robust error handling, and exposes a FastAPI server for API-based document operations.
 
 ## Features
 
-- **Parallel Document Processing**
-  - Processes multiple folders simultaneously
-  - Handles multiple documents per folder
-  - Uses LangGraph for workflow management
-  - Automatic section numbering and organization
-
-- **AI-Powered Analysis**
-  - Azure OpenAI integration for document analysis
-  - Retry mechanism for robust LLM calls
-  - Structured output with consistent formatting
-  - Comprehensive document summaries
-
-- **Document Organization**
-  - Section-based organization
-  - Automatic section numbering
-  - Consistent heading styles and colors
-  - Configurable document styles
-
-- **Output Format**
-  The merged document includes:
-  - Executive Summary
-  - Important Information
-  - Documents Analyzed
-
-- **Styling Features**
-  - Configurable document styles
-  - Consistent formatting throughout
-  - Customizable fonts, colors, and spacing
-  - Professional document layout
-
-## Prerequisites
-
-- Python 3.9 or higher
-- Azure OpenAI API access
-- Required Python packages (see requirements.txt)
-
-## Installation
-
-1. Clone the repository:
-
-```bash
-git clone <repository-url>
-cd mcp-agent
-```
-
-2.Create and activate a virtual environment:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
-
-3.Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-4.Set up environment variables:
-
-```bash
-# Required settings
-DOCUMENT_AGENT_API_KEY=your_api_key_here
-AZURE_OPENAI_API_KEY=your_azure_openai_api_key_here
-AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com
-AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
-
-# Optional settings (if you want to override defaults)
-HOST=0.0.0.0
-PORT=8000
-DOCUMENT_AGENT_PORT=8000
-OUTPUT_DIR=output
-API_BASE_URL=http://127.0.0.1:8000
-
-# Optional Azure Search settings (if using search functionality)
-AZURE_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
-AZURE_SEARCH_KEY=your_search_service_key
-AZURE_SEARCH_INDEX_NAME=documents
-
-# Optional Content Safety settings
-CONTENT_SAFETY_ENABLED=true
-CONTENT_SAFETY_THRESHOLD=0.7
-
-# Optional LLM settings
-LLM_DEFAULT_MAX_TOKENS=1000
-LLM_DEFAULT_TEMPERATURE=0.7
-```
-
-## Usage
-
-1. Place your documents in the `documents` folder, organized by sections:
-
-``
-documents/
-├── Section1/
-│   ├── document1.docx
-│   └── document2.docx
-├── Section2/
-│   ├── document3.docx
-│   └── document4.docx
-└── Section3/
-    ├── document5.docx
-    └── document6.docx
-``
-
-2.Run the document processor:
-
-```bash
-python src/parallel_document_processor.py
-```
-
-3.The merged document will be created in the `output` folder with a timestamp.
+- **Parallel Document Processing:**  
+  Processes multiple document sets in parallel for efficiency.
+- **AI-Powered Summarization:**  
+  Integrates with Azure OpenAI for document analysis and summary generation.
+- **API Endpoints:**  
+  Exposes endpoints for merging documents and LLM-based content generation.
+- **Configurable Output:**  
+  Supports custom output styles, section-based organization, and professional formatting.
+- **Robust Error Handling:**  
+  Handles missing files, API failures, and formatting issues gracefully.
 
 ## Project Structure
 
-```
+```text
 mcp-agent/
 ├── src/
 │   ├── mcp/
 │   │   ├── agents/
 │   │   │   └── document_merge_agent.py
 │   │   └── core/
+│   │       ├── server.py
 │   │       ├── document_parser.py
 │   │       ├── llm_client.py
 │   │       ├── config.py
+|   |       ├── search_client.py
 │   │       └── utils.py
-│   └── parallel_document_processor.py
+│   ├── document_processor.py
+|   └── run.py
 ├── documents/
-│   ├── Section1/
-│   ├── Section2/
-│   └── Section3/
 ├── output/
 ├── .env
-└── requirements.txt
+├── requirements.txt
+└── README.md
 ```
 
-## Configuration
+## Setup
 
-The project uses a hierarchical configuration system:
+1. **Clone the repository:**
 
-1. **Environment Variables**
-   - Loaded from `.env` file
-   - Can override default settings
-   - Required for API keys and endpoints
+   ```bash
+   git clone <repository-url>
+   cd mcp-agent
+   ```
 
-2. **Document Styles**
-   - Configurable through settings
-   - Default styles for different heading levels
-   - Customizable fonts, colors, and spacing
+2. **Create and activate a virtual environment:**
 
-3. **LLM Settings**
-   - Configurable token limits
-   - Adjustable temperature
-   - Retry mechanisms
+   ```bash
+   python -m venv .venv
+   # On Windows:
+   .venv\Scripts\activate
+   # On Linux/Mac:
+   source .venv/bin/activate
+   ```
 
-## API Endpoints
+3. **Install dependencies:**
 
-The service provides the following endpoints:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-- `POST /tools/merge_documents`: Merge multiple documents
-- `POST /tools/llm`: Generate content using LLM
-- `GET /`: Health check endpoint
+4. **Configure environment variables:**  
+   Create a `.env` file with your API keys and settings:
+
+   ```env
+   DOCUMENT_AGENT_API_KEY=your_api_key_here
+   AZURE_OPENAI_API_KEY=your_azure_openai_api_key_here
+   AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com
+   AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
+   ```
+
+## Usage
+
+1. **Start the API server:**
+
+   ```bash
+   python src/mcp/agents/document_merge_agent.py
+   ```
+
+   or, if using the modular server:
+
+   ```bash
+   python src/mcp/core/server.py
+   ```
+
+2. **Place your documents in the `documents/` folder, organized by section:**
+
+   ```text
+   documents/
+   ├── Section1/
+   │   ├── doc1.docx
+   │   └── doc2.docx
+   ├── Section2/
+   |   ├── doc3.docx
+   │   └── doc4.docx
+   ├── Section2/
+   |   ├── doc5.docx
+   │   └── doc6.docx
+   ```
+
+3. **Call the API endpoints:**  
+   - `POST /tools/merge_documents` — Merge and summarize documents.
+   - `POST /tools/llm` — Generate content using LLM.
+   - `GET /` — Health check.
+
+   Use tools like `curl`, Postman, or your own client to interact with the API.
+
+4. **Output:**  
+   Merged and summarized documents are saved in the `output/` directory.
+
+## API Example
+
+- **Merge Documents:**
+
+  ```json
+  POST /tools/merge_documents
+  Headers: { "API-Key": "<your_api_key>" }
+  Body:
+  {
+    "input_dir": "documents/Section1",
+    "output_file": "output/merged.docx",
+    "document_sets": [
+      {
+        "name": "Section1",
+        "documents": ["doc1.docx", "doc2.docx"],
+        "summary_type": "executive",
+        "include_sections": ["all"]
+      }
+    ]
+  }
+  ```
 
 ## Error Handling
 
-The system includes comprehensive error handling for:
-
-- Missing documents
-- API failures
-- LLM processing errors
-- Document formatting issues
-- Configuration validation
-
-## Retry Mechanism
-
-The system implements a robust retry mechanism for LLM calls:
-
-- Maximum 3 retry attempts
-- Exponential backoff
-- Detailed error logging
-- Exception handling
+- Handles missing documents, API failures, and formatting errors.
+- Returns clear error messages and status codes.
