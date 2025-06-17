@@ -1,11 +1,9 @@
-import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from ..core.document_parser import DocumentParser
 from ..core.config import Settings
-import asyncio
 import logging
 
 # Initialize settings

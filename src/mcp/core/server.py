@@ -1,11 +1,13 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Header
 from typing import Dict, Any, Callable, Optional
 import uvicorn
 from pydantic import BaseModel
 
+# This is a request model which is use to validate JSON data while calling a tool 
 class ToolRequest(BaseModel):
     data: Dict[str, Any]
 
+# This is a modular FastAPI server class that registers tools and exposes them as API endpoints   
 class FastMCP:
 
     

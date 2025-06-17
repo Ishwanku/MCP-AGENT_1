@@ -2,14 +2,42 @@ Write-Host ""
 Write-Host "Setting up MCP Document Merge Agent"
 Write-Host ""
 
-# Check for Python installation
-$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-if (-not $pythonCmd) {
-    $pythonCmd = Get-Command python3 -ErrorAction SilentlyContinue
-}
-if (-not $pythonCmd) {
-    Write-Host "Python is not installed. Please install Python 3.8 or later."
+# Check Python installation
+$pythonVersion = python --version 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Python is not installed. Please install Python 3.8 or later."
     exit 1
+}
+
+# Extract version number and check if it's 3.8 or later
+$versionMatch = $pythonVersion -match "Python (\d+\.\d+)"
+if ($versionMatch) {
+    $version = [version]$Matches[1]
+    if ($version.Major -lt 3 -or ($version.Major -eq 3 -and $version.Minor -lt 8)) {
+        Write-Error "Python 3.8 or later is required. Current version: $version"
+        exit 1
+    }
+}
+
+# Check and update pip version
+Write-Host "Checking pip version..."
+$pipVersion = python -m pip --version 2>&1
+$currentPipVersion = $pipVersion -match "pip (\d+\.\d+\.\d+)"
+if ($currentPipVersion) {
+    $currentVersion = [version]$Matches[1]
+    $latestVersion = [version]"25.1.1"  # Latest stable version
+    
+    if ($currentVersion -lt $latestVersion) {
+        Write-Host "Updating pip from $currentVersion to $latestVersion..."
+        python -m pip install --upgrade pip
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Failed to update pip. Continuing with current version..."
+        } else {
+            Write-Host "Pip updated successfully."
+        }
+    } else {
+        Write-Host "Pip is up to date (version $currentVersion)."
+    }
 }
 
 # Check if virtual environment exists
@@ -31,7 +59,7 @@ if (Test-Path $venvPythonPath) {
 } else {
     Write-Host "Creating new virtual environment..."
     # Create new virtual environment
-    & $pythonCmd -m venv .venv
+    & python -m venv .venv
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Failed to create virtual environment"
         exit 1

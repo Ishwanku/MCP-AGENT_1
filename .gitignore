@@ -26,8 +26,7 @@ dist/
 output/
 
 # Input Directory for Documents (if not versioned)
-# Uncomment the following line if you don't want to track input documents
-# documents/
+documents/
 
 # Environment Variable Files
 # Ignore files containing sensitive configuration like API keys
@@ -56,4 +55,7 @@ Thumbs.db
 # Project-Specific Temporary Files
 # Ignore temporary files created during document conversion (e.g., PDF to DOCX)
 temp_*.docx
-temp_pdf_conversion.docx 
+temp_pdf_conversion.docx
+
+# Ignore all .docx files in any folder
+*.docx

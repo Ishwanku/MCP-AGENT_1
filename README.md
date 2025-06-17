@@ -24,11 +24,9 @@ A Python-based document processing and merging tool that uses AI to analyze and 
 
 - **Output Format**
   The merged document includes:
-  - Main Points
-  - Document Summaries
-  - Key Findings
+  - Executive Summary
   - Important Information
-  - Cross-references between documents
+  - Documents Analyzed
 
 - **Styling Features**
   - Configurable document styles
@@ -121,7 +119,7 @@ python src/parallel_document_processor.py
 
 ## Project Structure
 
-``
+```
 mcp-agent/
 ├── src/
 │   ├── mcp/
@@ -140,7 +138,7 @@ mcp-agent/
 ├── output/
 ├── .env
 └── requirements.txt
-``
+```
 
 ## Configuration
 

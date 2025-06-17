@@ -1,4 +1,4 @@
-import os, sys, platform, subprocess
+import sys, platform, subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 import logging

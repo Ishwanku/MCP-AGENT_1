@@ -1,7 +1,6 @@
 import functools
-import time
 import logging
-from typing import Callable, Any, Optional
+from typing import Callable, Any
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)

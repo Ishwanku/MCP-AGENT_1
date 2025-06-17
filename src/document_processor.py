@@ -27,7 +27,7 @@ logging.getLogger('urllib3').setLevel(logging.ERROR)
 # Load environment variables
 load_dotenv()
 
-# Define state types for LangGraph
+# Define state types for LangGraph for each node
 class FolderState(TypedDict):
     folder_name: str
     documents: List[str]
@@ -41,18 +41,13 @@ class DocumentState(TypedDict):
     final_summary_path: str
     error: str
 
-# Document cache to avoid repeated disk I/O
-document_cache: Dict[str, str] = {}
-
+# Read the input document and return the plain text
 async def get_document_content(doc_path: Path) -> str:
     """Get document content from cache or read from disk."""
-    cache_key = str(doc_path)
-    if cache_key not in document_cache:
-        doc = Document(doc_path)
-        document_cache[cache_key] = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
-    return document_cache[cache_key]
+    doc = Document(doc_path)
+    return "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
 
-# Process a single document
+# Process a single document reads the .docx file and send the prompt to LLM with max 5000 chracters to get summary and important info.
 async def process_single_document(session: aiohttp.ClientSession, doc_path: Path) -> Dict[str, Any]:
     """Process a single document and extract important information."""
     try:
@@ -64,11 +59,9 @@ async def process_single_document(session: aiohttp.ClientSession, doc_path: Path
         
         # Create prompt for LLM
         prompt = f"""
-        Analyze this document and extract the following information:
-        1. Main Points
-        2. Document Summary
-        3. Key Findings
-        4. Important Information
+        Analyze this document and provide:
+        1. Executive Summary: A concise summary of the main content
+        2. Important Information: Critical points that need special attention
 
         Document: {doc_path.name}
         Content: {text_content[:5000]}  # Limit content length
@@ -116,13 +109,14 @@ async def process_single_document(session: aiohttp.ClientSession, doc_path: Path
             "error": error_msg
         }
 
+# Fetch the subfolders from the input folder.
 async def discover_folders(input_dir: Path) -> AsyncIterator[Path]:
     """Asynchronously discover folders in the input directory."""
     for folder_path in input_dir.iterdir():
         if folder_path.is_dir():
             yield folder_path
 
-# Process a single folder and its documents
+# Process all documents parallely from the single folder and make a result + combined folder-level summary using other LLM prompt and return it in structured result.
 async def process_single_folder(session: aiohttp.ClientSession, folder_path: Path) -> Dict[str, Any]:
     """Process a single folder and all its documents in parallel."""
     try:
@@ -160,11 +154,9 @@ async def process_single_folder(session: aiohttp.ClientSession, folder_path: Pat
         Create a comprehensive summary of these related documents:
         {chr(10).join([f"- {r['original_document_name']}: {r['analysis']}" for r in successful_results])}
 
-        Include:
-        1. Main Points
-        2. Document Summaries
-        3. Key Findings
-        4. Important Information
+        Focus on:
+        1. Executive Summary: Provide a clear, concise summary of the entire document set
+        2. Important Information: List any critical points or information that requires special attention
         """
         
         # Get summary from LLM with retry mechanism
@@ -206,7 +198,7 @@ async def process_single_folder(session: aiohttp.ClientSession, folder_path: Pat
             "error": error_msg
         }
 
-# Process all folders in parallel
+# Process all folders in parallel using asynio.create_task() and store the summary and document of each folder into state["folders"] also handles the error if any folder fails
 async def process_all_folders(state: DocumentState) -> DocumentState:
     """Process all folders and their documents in parallel."""
     try:
@@ -248,7 +240,7 @@ async def process_all_folders(state: DocumentState) -> DocumentState:
         state["error"] = str(e)
         return state
 
-# Create final document
+# Fetch the document paths + summary from each successfully processed folders and send them all to /tools/merge_documents API then generate the final merge DOCX file and store it in state["final_summary_path"]
 async def create_final_document(state: DocumentState) -> DocumentState:
     """Create the final merged document with all folder summaries."""
     try:
@@ -303,14 +295,7 @@ async def create_final_document(state: DocumentState) -> DocumentState:
                 "summary_type": "comprehensive",
                 "include_sections": [
                     "executive_summary",
-                    "detailed_analysis",
-                    "key_findings",
-                    "important_context",
-                    "critical_information",
-                    "recommendations",
-                    "action_items",
-                    "cross_references",
-                    "synthesis"
+                    "important_information"
                 ]
             })
         
@@ -363,7 +348,7 @@ async def create_final_document(state: DocumentState) -> DocumentState:
         state["error"] = error_msg
         return state
 
-# Main function to run the parallel processing workflow
+# Main function to set the LangGraph Workflow by setting (Nodes: process_folders → create_document → END) parallel processing using app.ainvoke()
 async def main():
     """Main function to run the parallel document processing workflow."""
     try:
@@ -413,6 +398,7 @@ async def main():
         logger.error(f"Error in main process: {str(e)}")
         raise
 
+# Run the main in starting of script using asyncio.run()  
 if __name__ == "__main__":
     print("Starting parallel document processing workflow...")
     asyncio.run(main())

@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
-from typing import Optional, List, Dict, Tuple
-from pydantic import validator, Field
+from typing import Optional, List, Tuple
+from pydantic import field_validator, Field
 
 class DocumentStyleSettings(BaseSettings):
     font_name: str = "Arial"
@@ -32,10 +32,7 @@ class Settings(BaseSettings):
     AZURE_SEARCH_ENDPOINT: str = ""
     AZURE_SEARCH_KEY: str = ""
     AZURE_SEARCH_INDEX_NAME: str = "documents"
-    
-    # Content Safety settings
-    CONTENT_SAFETY_ENABLED: bool = True
-    CONTENT_SAFETY_THRESHOLD: float = 0.7
+
 
     # Document Style Settings
     title_style: DocumentStyleSettings = Field(
@@ -104,31 +101,29 @@ class Settings(BaseSettings):
     # Document Set Default Settings
     DEFAULT_SUMMARY_TYPE: str = "detailed"
     DEFAULT_INCLUDE_SECTIONS: List[str] = [
-        "main_points",
-        "document_summaries",
-        "key_findings",
+        "executive_summary",
         "important_information"
     ]
 
-    @validator('AZURE_OPENAI_ENDPOINT')
+    @field_validator('AZURE_OPENAI_ENDPOINT')
     def validate_endpoint(cls, v):
         if not v.startswith('https://'):
             raise ValueError('AZURE_OPENAI_ENDPOINT must be a valid HTTPS URL')
         return v
 
-    @validator('AZURE_OPENAI_API_KEY')
+    @field_validator('AZURE_OPENAI_API_KEY')
     def validate_api_key(cls, v):
         if not v:
             raise ValueError('AZURE_OPENAI_API_KEY is required')
         return v
 
-    @validator('AZURE_OPENAI_DEPLOYMENT_NAME')
+    @field_validator('AZURE_OPENAI_DEPLOYMENT_NAME')
     def validate_deployment_name(cls, v):
         if not v:
             raise ValueError('AZURE_OPENAI_DEPLOYMENT_NAME is required')
         return v
 
-    @validator('AZURE_SEARCH_ENDPOINT')
+    @field_validator('AZURE_SEARCH_ENDPOINT')
     def validate_search_endpoint(cls, v):
         if v and not v.startswith('https://'):
             raise ValueError('AZURE_SEARCH_ENDPOINT must be a valid HTTPS URL')

@@ -1,8 +1,7 @@
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List
 from .config import Settings
 from openai import AzureOpenAI
-from openai.types.chat import ChatCompletion
 from .utils import retry_llm_call
 
 # Logger setup (assumes logging is configured in config.py or a dedicated module)
@@ -17,8 +16,6 @@ class LLMClient:
         self.provider = settings.LLM_PROVIDER
         self.client = None
         self.deployment_name = settings.AZURE_OPENAI_DEPLOYMENT_NAME
-        self.content_safety_enabled = settings.CONTENT_SAFETY_ENABLED
-        self.content_safety_threshold = settings.CONTENT_SAFETY_THRESHOLD
         self._init_client(settings)
     
     # Initialize the LLM client based on the provider
@@ -50,30 +47,13 @@ class LLMClient:
             except Exception as e:
                 logger.error(f"Failed to initialize Azure OpenAI client: {e}")
                 raise
-    
-    # Check if content meets safety thresholds
-    def _check_content_safety(self, text: str) -> bool:
-        """Check if content meets safety thresholds."""
-        if not self.content_safety_enabled:
-            return True
-            
-        try:
-            # Implement content safety check using Azure AI Content Safety
-            # This is a placeholder - you'll need to implement the actual content safety check
-            return True
-        except Exception as e:
-            logger.warning(f"Content safety check failed: {e}")
-            return True
-    
-    # 7 Generate a summary of the provided text with specified sections(gives the prompt text to the LLM)
+
+    # Generate a summary of the provided text with specified sections(gives the prompt text to the LLM)
     def generate_summary(self, text: str, max_length: int = 1000, sections: List[str] = None) -> str:
         """Generate a summary of the provided text with specified sections and length."""
         if not self.is_available():
             logger.warning("Content generation unavailable: Client not configured")
             return "Content generation unavailable: Client not configured"
-        
-        if not self._check_content_safety(text):
-            return "Content safety check failed. Please review the input text."
         
         sections = sections or ["main topic", "key points", "context", "recommendations"]
         prompt = f"""
@@ -92,6 +72,7 @@ class LLMClient:
         logger.debug(f"LLMClient availability check: {availability}")
         return availability
     
+    # Added retry mechanism if request fails due to any issue it retry 
     @retry_llm_call(
         max_attempts=3,
         initial_wait=1.0,
@@ -99,17 +80,6 @@ class LLMClient:
         exceptions=(Exception,)
     )
     async def generate_content(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.7) -> str:
-        """
-        Generate content using Azure OpenAI with retry mechanism.
-        
-        Args:
-            prompt (str): The prompt to send to the LLM
-            max_tokens (int): Maximum number of tokens to generate
-            temperature (float): Temperature for response generation
-            
-        Returns:
-            str: Generated content
-        """
         try:
             response = self.client.chat.completions.create(
                 model=self.deployment_name,
