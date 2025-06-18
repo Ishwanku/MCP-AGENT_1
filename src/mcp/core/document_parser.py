@@ -218,10 +218,8 @@ class DocumentParser:
             # Create a focused prompt for the LLM
             prompt = f"""
             Create a concise summary of these related documents, focusing on:
-            1. Main Points
-            2. Document Summaries
-            3. Key Findings
-            4. Important Information
+            1. Document Summaries
+            3. Important Information
 
             Documents:
             {chr(10).join([f"- {analysis['document_name']}: {analysis.get('analysis', 'No analysis available')}" for analysis in document_analyses])}

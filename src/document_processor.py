@@ -10,6 +10,7 @@ import time
 from docx import Document
 from dotenv import load_dotenv
 from mcp.core.config import settings
+from mcp.core.utils import retry_llm_call
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -44,84 +45,202 @@ class DocumentState(TypedDict):
 # Read the input document and return the plain text
 async def get_document_content(doc_path: Path) -> str:
     """Get document content from cache or read from disk."""
-    doc = Document(doc_path)
-    return "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
-
-# Process a single document reads the .docx file and send the prompt to LLM with max 5000 chracters to get summary and important info.
-async def process_single_document(session: aiohttp.ClientSession, doc_path: Path) -> Dict[str, Any]:
-    """Process a single document and extract important information."""
     try:
-        start_time = time.time()
-        logger.info(f"Starting processing of document {doc_path.name} at {time.strftime('%H:%M:%S')}")
+        doc = Document(doc_path)
+        text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+        if not text:
+            logger.warning(f"No readable text found in {doc_path.name}")
+        return text
+    except Exception as e:
+        logger.error(f"Error reading document {doc_path.name}: {str(e)}")
+        return ""
 
-        # Get document content from cache
+# Split document into overlapping chunks with metadata
+def chunk_document(text: str, doc_name: str, chunk_size: int = 4000, chunk_overlap: int = 200) -> List[Dict[str, Any]]:
+    """Split document into overlapping chunks with document metadata."""
+    chunks = []
+    start = 0
+    text_length = len(text)
+
+    while start < text_length:
+        end = start + chunk_size
+        if start > 0:
+            start = start - chunk_overlap
+        if end >= text_length:
+            chunk = text[start:]
+            chunks.append({
+                "document": doc_name,
+                "chunk_index": len(chunks) + 1,
+                "content": chunk
+            })
+            break
+
+        last_period = text.rfind(".", start, end)
+        last_newline = text.rfind("\n", start, end)
+        break_point = max(last_period, last_newline)
+        if break_point > start:
+            end = break_point + 1
+
+        chunk = text[start:end]
+        chunks.append({
+            "document": doc_name,
+            "chunk_index": len(chunks) + 1,
+            "content": chunk
+        })
+        start = end
+
+    if not chunks:
+        logger.warning(f"No chunks created for {doc_name} with text of {text_length} chars")
+    return chunks
+
+# Process a single document with chunking and retry logic
+async def process_single_document(session: aiohttp.ClientSession, doc_path: Path) -> Dict[str, Any]:
+    """Process a single document by chunking content and extracting important information."""
+    try:
+        logger.info(f"Starting processing of document {doc_path.name}")
+
+        # Get document content
         text_content = await get_document_content(doc_path)
+        if not text_content:
+            return {
+                "status": "error",
+                "document_name": doc_path.name,
+                "original_document_name": doc_path.name,
+                "analysis": "No text content extracted from document",
+                "error": "Empty or unreadable document",
+                "chunk_analyses": []
+            }
         
-        # Create prompt for LLM
-        prompt = f"""
-        Analyze this document and provide:
-        1. Executive Summary: A concise summary of the main content
-        2. Important Information: Critical points that need special attention
+        # Split document into chunks with metadata
+        chunks = chunk_document(text_content, doc_path.name)
+        logger.info(f"Split {doc_path.name} into {len(chunks)} chunks")
+        chunk_analyses = []
+
+        # Define HTTP request function with retry decorator
+        @retry_llm_call(
+            max_attempts=3,
+            initial_wait=2.0,
+            max_wait=8.0,
+            exceptions=(aiohttp.ClientResponseError, aiohttp.ClientConnectorError, aiohttp.ServerTimeoutError, Exception),
+            result_predicate=lambda result: not result.get("content") or result.get("content") == "No response generated",
+            log_context=f"HTTP request for chunk of {doc_path.name}"
+        )
+        async def make_llm_request(prompt: str, chunk_index: int) -> Dict[str, Any]:
+            data = {
+                "prompt": prompt,
+                "max_tokens": 1000,
+                "temperature": 0.7
+            }
+            async with session.post(
+                "http://127.0.0.1:8000/tools/llm",
+                headers={"Content-Type": "application/json", "API-Key": os.getenv("DOCUMENT_AGENT_API_KEY")},
+                json=data
+            ) as response:
+                response.raise_for_status()
+                llm_result = await response.json()
+                if not llm_result.get("content") or llm_result.get("content") == "No response generated":
+                    logger.warning(f"No content in LLM response for chunk {chunk_index} of {doc_path.name}")
+                return llm_result
+
+        # Process each chunk
+        for chunk in chunks:
+            chunk_index = chunk["chunk_index"]
+            chunk_content = chunk["content"]
+
+            prompt = f"""
+            Analyze this part of the document (Part {chunk_index} of {len(chunks)}) and provide:
+            1. A concise summary of the main content
+            2. Any critical or important information that needs special attention
+
+            Document: {doc_path.name}
+            Content: {chunk_content}
+            """
+            
+            try:
+                llm_result = await make_llm_request(prompt, chunk_index)
+                chunk_analyses.append({
+                    "document": doc_path.name,
+                    "chunk_index": chunk_index,
+                    "analysis": llm_result.get("content", f"Error: No content in LLM response")
+                })
+            except Exception as e:
+                logger.error(f"Failed to process chunk {chunk_index} of {doc_path.name} after retries: {str(e)}")
+                chunk_analyses.append({
+                    "document": doc_path.name,
+                    "chunk_index": chunk_index,
+                    "analysis": f"Error: {str(e)}"
+                })
+
+        # Check if any valid analyses were generated
+        valid_analyses = [a for a in chunk_analyses if not a["analysis"].startswith("Error:")]
+        if not valid_analyses:
+            logger.warning(f"No valid analyses generated for {doc_path.name}")
+            return {
+                "status": "error",
+                "document_name": doc_path.name,
+                "original_document_name": doc_path.name,
+                "analysis": "No valid analysis available - all chunks failed processing",
+                "error": "No valid chunk analyses generated",
+                "chunk_analyses": chunk_analyses
+            }
+
+        # Create final summary of all chunks
+        summary_prompt = f"""
+        Create a comprehensive analysis of this document by combining the analyses of its parts.
+        Focus on two main aspects:
+        1. Executive Summary: Provide a clear, concise summary of the entire document
+        2. Important Information: List any critical points, key findings, or information that requires special attention
 
         Document: {doc_path.name}
-        Content: {text_content[:5000]}  # Limit content length
+        Part Analyses:
+        {chr(10).join([f"Part {a['chunk_index']}: {a['analysis']}" for a in chunk_analyses])}
         """
         
-        # Make LLM request with retry mechanism
-        data = {
-            "prompt": prompt,
-            "max_tokens": 1000,
-            "temperature": 0.7
-        }
-        
-        async with session.post(
-            "http://127.0.0.1:8000/tools/llm",
-            headers={"Content-Type": "application/json", "API-Key": os.getenv("DOCUMENT_AGENT_API_KEY")},
-            json=data
-        ) as response:
-            if response.status == 200:
-                llm_result = await response.json()
-                return {
-                    "status": "success",
-                    "document_name": doc_path.name,
-                    "original_document_name": doc_path.name,
-                    "analysis": llm_result.get("content", ""),
-                    "error": ""
-                }
-            else:
-                error_msg = f"Error processing document {doc_path.name}: {await response.text()}"
-                logger.error(error_msg)
-                return {
-                    "status": "error",
-                    "document_name": doc_path.name,
-                    "original_document_name": doc_path.name,
-                    "analysis": "",
-                    "error": error_msg
-                }
+        try:
+            llm_result = await make_llm_request(summary_prompt, chunk_index=0)  # chunk_index=0 for document summary
+            final_analysis = llm_result.get("content", "No analysis available")
+            logger.info(f"Completed processing of document {doc_path.name}")
+            return {
+                "status": "success",
+                "document_name": doc_path.name,
+                "original_document_name": doc_path.name,
+                "analysis": final_analysis,
+                "error": "",
+                "chunk_analyses": chunk_analyses
+            }
+        except Exception as e:
+            logger.error(f"Failed to combine chunk analyses for {doc_path.name} after retries: {str(e)}")
+            return {
+                "status": "error",
+                "document_name": doc_path.name,
+                "original_document_name": doc_path.name,
+                "analysis": "",
+                "error": str(e),
+                "chunk_analyses": chunk_analyses
+            }
     except Exception as e:
-        error_msg = f"Error processing document {doc_path.name}: {str(e)}"
-        logger.error(error_msg)
+        logger.error(f"Error processing document {doc_path.name}: {str(e)}")
         return {
             "status": "error",
             "document_name": doc_path.name,
             "original_document_name": doc_path.name,
             "analysis": "",
-            "error": error_msg
+            "error": str(e),
+            "chunk_analyses": []
         }
-
-# Fetch the subfolders from the input folder.
+# Fetch the subfolders from the input folder
 async def discover_folders(input_dir: Path) -> AsyncIterator[Path]:
     """Asynchronously discover folders in the input directory."""
     for folder_path in input_dir.iterdir():
         if folder_path.is_dir():
             yield folder_path
 
-# Process all documents parallely from the single folder and make a result + combined folder-level summary using other LLM prompt and return it in structured result.
+# Process all documents in parallel from a single folder
 async def process_single_folder(session: aiohttp.ClientSession, folder_path: Path) -> Dict[str, Any]:
     """Process a single folder and all its documents in parallel."""
     try:
         folder_name = folder_path.name
-        logger.info(f"Starting processing of folder {folder_name} at {time.strftime('%H:%M:%S')}")
+        logger.info(f"Starting processing of folder {folder_name}")
         
         # Get all .docx files in the folder
         docx_files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == '.docx']
@@ -159,35 +278,49 @@ async def process_single_folder(session: aiohttp.ClientSession, folder_path: Pat
         2. Important Information: List any critical points or information that requires special attention
         """
         
-        # Get summary from LLM
-        summary_data = {
-            "prompt": summary_prompt,
-            "max_tokens": 1000,
-            "temperature": 0.7
-        }
-        
-        async with session.post(
-            "http://127.0.0.1:8000/tools/llm",
-            headers={"Content-Type": "application/json", "API-Key": os.getenv("DOCUMENT_AGENT_API_KEY")},
-            json=summary_data
-        ) as response:
-            if response.status == 200:
-                summary_result = await response.json()
-                return {
-                    "folder_name": folder_name,
-                    "document_analyses": successful_results,
-                    "summary": summary_result.get("content", ""),
-                    "error": ""
+        for attempt in range(1, 4):
+            try:
+                summary_data = {
+                    "prompt": summary_prompt,
+                    "max_tokens": 1000,
+                    "temperature": 0.7
                 }
-            else:
-                error_msg = f"Error generating summary: {await response.text()}"
-                logger.error(error_msg)
-                return {
-                    "folder_name": folder_name,
-                    "document_analyses": successful_results,
-                    "summary": "",
-                    "error": error_msg
-                }
+                
+                async with session.post(
+                    "http://127.0.0.1:8000/tools/llm",
+                    headers={"Content-Type": "application/json", "API-Key": os.getenv("DOCUMENT_AGENT_API_KEY")},
+                    json=summary_data
+                ) as response:
+                    if response.status == 200:
+                        summary_result = await response.json()
+                        return {
+                            "folder_name": folder_name,
+                            "document_analyses": successful_results,
+                            "summary": summary_result.get("content", ""),
+                            "error": ""
+                        }
+                    else:
+                        error_msg = f"HTTP {response.status}: {await response.text()}"
+                        logger.error(f"Error generating summary for {folder_name} (attempt {attempt}): {error_msg}")
+                        if attempt == 3:
+                            return {
+                                "folder_name": folder_name,
+                                "document_analyses": successful_results,
+                                "summary": "",
+                                "error": error_msg
+                            }
+                        await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                error_msg = f"Exception: {str(e)}"
+                logger.error(f"Error generating summary for {folder_name} (attempt {attempt}): {error_msg}")
+                if attempt == 3:
+                    return {
+                        "folder_name": folder_name,
+                        "document_analyses": successful_results,
+                        "summary": "",
+                        "error": error_msg
+                    }
+                await asyncio.sleep(2 ** attempt)
     except Exception as e:
         error_msg = f"Error processing folder {folder_path}: {str(e)}"
         logger.error(error_msg)
@@ -198,12 +331,11 @@ async def process_single_folder(session: aiohttp.ClientSession, folder_path: Pat
             "error": error_msg
         }
 
-# Process all folders in parallel using asynio.create_task() and store the summary and document of each folder into state["folders"] also handles the error if any folder fails
+# Process all folders in parallel (NODE 1)
 async def process_all_folders(state: DocumentState) -> DocumentState:
     """Process all folders and their documents in parallel."""
     try:
-        start_time = time.time()
-        logger.info(f"Starting parallel processing of all folders at {time.strftime('%H:%M:%S')}")
+        logger.info(f"Starting parallel processing of all folders")
 
         # Validate input directory
         input_dir = Path(state["input_dir"])
@@ -231,21 +363,18 @@ async def process_all_folders(state: DocumentState) -> DocumentState:
             for result in folder_results
         ]
 
-        end_time = time.time()
-        duration = end_time - start_time
-        logger.info(f"Completed processing all folders in {duration:.2f} seconds")
+        logger.info(f"Completed processing all folders")
         
         return state
     except Exception as e:
         state["error"] = str(e)
         return state
 
-# Fetch the document paths + summary from each successfully processed folders and send them all to /tools/merge_documents API then generate the final merge DOCX file and store it in state["final_summary_path"]
+# Create the final merged document (NODE 2)
 async def create_final_document(state: DocumentState) -> DocumentState:
     """Create the final merged document with all folder summaries."""
     try:
-        start_time = time.time()
-        logger.info(f"Starting final document creation at {time.strftime('%H:%M:%S')}")
+        logger.info(f"Starting final document creation")
 
         url = f"{settings.API_BASE_URL}/tools/merge_documents"
         headers = {
@@ -253,7 +382,7 @@ async def create_final_document(state: DocumentState) -> DocumentState:
             "API-Key": settings.DOCUMENT_AGENT_API_KEY
         }
         
-        # Create output directory if it doesn't exist
+        # Create output directory
         output_dir = Path(settings.OUTPUT_DIR).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -270,6 +399,7 @@ async def create_final_document(state: DocumentState) -> DocumentState:
             folder_path = input_dir / folder["folder_name"]
             document_paths = []
             document_names = []
+            chunk_analyses = []
             for doc in folder["document_analyses"]:
                 doc_path = folder_path / doc["original_document_name"]
                 if not doc_path.exists():
@@ -277,16 +407,12 @@ async def create_final_document(state: DocumentState) -> DocumentState:
                     continue
                 document_paths.append(str(doc_path))
                 document_names.append(doc["original_document_name"])
+                chunk_analyses.extend(doc.get("chunk_analyses", []))
             
             if not document_paths:
                 logger.warning(f"No valid documents found in folder {folder['folder_name']}")
                 continue
             
-            # Log the documents being included in this set (using just file names)
-            logger.info(f"Preparing document set {i}: {folder['folder_name']}")
-            logger.info(f"Documents in set: {document_names}")  # Log just the names
-            
-            # Use full document paths for merging but names for display
             document_sets.append({
                 "name": folder['folder_name'],
                 "documents": document_paths,
@@ -296,7 +422,8 @@ async def create_final_document(state: DocumentState) -> DocumentState:
                 "include_sections": [
                     "executive_summary",
                     "important_information"
-                ]
+                ],
+                "chunk_analyses": chunk_analyses
             })
         
         if not document_sets:
@@ -305,41 +432,35 @@ async def create_final_document(state: DocumentState) -> DocumentState:
             state["error"] = error_msg
             return state
         
-        # Log the final document sets being sent for merging (using just file names)
-        logger.info(f"Preparing to merge {len(document_sets)} document sets")
-        for i, doc_set in enumerate(document_sets, 1):
-            logger.info(f"Set {i}: {doc_set['name']} with documents: {doc_set['document_names']}")
-        
         data = {
             "input_dir": str(input_dir),
             "output_file": str(output_dir / state["output_file"]),
             "document_sets": document_sets
         }
         
-        # Log the merge request
-        logger.info(f"Sending merge request to {url}")
-        logger.info(f"Output will be saved to: {data['output_file']}")
-        
         async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(url, headers=headers, json=data) as response:
-                    response_text = await response.text()
-                    if response.status == 200:
-                        result = await response.json()
-                        state["final_summary_path"] = result.get("output_path", "")
-                        end_time = time.time()
-                        duration = end_time - start_time
-                        logger.info(f"Successfully created final document in {duration:.2f} seconds")
-                        logger.info(f"Final document saved at: {state['final_summary_path']}")
-                    else:
-                        error_msg = f"Error creating final document: {response_text}"
-                        logger.error(error_msg)
-                        logger.error(f"Response status: {response.status}")
+            for attempt in range(1, 4):
+                try:
+                    async with session.post(url, headers=headers, json=data) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            state["final_summary_path"] = result.get("output_path", "")
+                            logger.info(f"Final document saved at: {state['final_summary_path']}")
+                            return state
+                        else:
+                            error_msg = f"Error creating final document: {await response.text()}"
+                            logger.error(f"Merge request failed (attempt {attempt}): {error_msg}")
+                            if attempt == 3:
+                                state["error"] = error_msg
+                                return state
+                            await asyncio.sleep(2 ** attempt)
+                except Exception as e:
+                    error_msg = f"Error during merge request: {str(e)}"
+                    logger.error(f"Merge request failed (attempt {attempt}): {error_msg}")
+                    if attempt == 3:
                         state["error"] = error_msg
-            except Exception as e:
-                error_msg = f"Error during merge request: {str(e)}"
-                logger.error(error_msg)
-                state["error"] = error_msg
+                        return state
+                    await asyncio.sleep(2 ** attempt)
         
         return state
     except Exception as e:
@@ -382,7 +503,7 @@ async def main():
         # Set entry point
         workflow.set_entry_point("process_folders")
         
-        # Compile workflow
+        # Compiles graph into an executable app.
         app = workflow.compile()
         
         # Run workflow
@@ -392,14 +513,12 @@ async def main():
             logger.error(f"Error in workflow: {final_state['error']}")
         else:
             logger.info(f"Successfully created merged document at: {final_state['final_summary_path']}")
-            logger.info(f"Document merge process completed at {datetime.now()}")
         
     except Exception as e:
         logger.error(f"Error in main process: {str(e)}")
         raise
 
-# Run the main in starting of script using asyncio.run()  
 if __name__ == "__main__":
     print("Starting parallel document processing workflow...")
     asyncio.run(main())
-    print("Workflow completed.") 
+    print("Workflow completed.")

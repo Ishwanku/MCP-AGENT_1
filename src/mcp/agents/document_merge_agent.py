@@ -9,36 +9,33 @@ import logging
 # Initialize settings
 settings = Settings()
 
-# Initialize FastAPI application with a descriptive title for API documentation
+# Initialize FastAPI application
 app = FastAPI(title="Document Merge Agent")
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
-# Document Set model defined by using pydantic
+# Document Set model
 class DocumentSet(BaseModel):
     name: str
     documents: List[str]
     summary_type: str = settings.DEFAULT_SUMMARY_TYPE
     include_sections: List[str] = settings.DEFAULT_INCLUDE_SECTIONS
 
-
-# MergeRequest model (Payload structure from client side) 
+# MergeRequest model
 class MergeRequest(BaseModel):
     input_dir: str
     output_file: Optional[str] = None
     document_sets: List[DocumentSet]
 
-
-# MergeResponse model (Response structure from server side)
+# MergeResponse model
 class MergeResponse(BaseModel):
     status: str
     message: str
     output_path: Optional[str] = None
     set_summaries: List[Dict[str, Any]]
 
-
-# Add LLM request and response models
+# LLM request and response models
 class LLMRequest(BaseModel):
     prompt: str
     max_tokens: int = settings.LLM_DEFAULT_MAX_TOKENS
@@ -160,7 +157,7 @@ async def merge_documents(
             detail=f"Unexpected error: {str(e)}"
         )
 
-# Add LLM endpoint
+# LLM endpoint
 @app.post("/tools/llm", response_model=LLMResponse)
 async def llm_endpoint(
     request: LLMRequest,
@@ -176,26 +173,26 @@ async def llm_endpoint(
         
         llm_client = LLMClient(settings)
         
-        # Generate content
-        content = llm_client.generate_content(request.prompt)
-        
-        return LLMResponse(
-            status="success",
-            content=content
+        # Generate content with await
+        content = await llm_client.generate_content(
+            prompt=request.prompt,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature
         )
+        
+        if not content or content == "No response generated":
+            logger.warning("Empty or invalid content from LLM")
+            return LLMResponse(status="success", content="", error="Empty response from LLM")
+        
+        logger.debug(f"LLM response: content_length={len(content)}")
+        return LLMResponse(status="success", content=content, error="")
         
     except Exception as e:
-        return LLMResponse(
-            status="error",
-            content="",
-            error=str(e)
-        )
+        logger.error(f"Error processing LLM request: {str(e)}")
+        return LLMResponse(status="error", content="", error=str(e))
 
 if __name__ == "__main__":
-    # Entry point to run the FastAPI server directly if this module is executed.
     import uvicorn
-    # Inform user about tool registration and server startup
     print("Registered tool 'merge_documents' for Document Merge Agent")
     print(f"Starting Document Merge Agent server on port {settings.DOCUMENT_AGENT_PORT}")
-    # Start the Uvicorn server with configuration from environment variables
     uvicorn.run(app, host=settings.host, port=settings.port)

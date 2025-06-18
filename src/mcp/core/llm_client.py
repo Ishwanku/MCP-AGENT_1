@@ -1,7 +1,7 @@
 import logging
 from typing import List
 from .config import Settings
-from openai import AzureOpenAI
+from openai import AsyncAzureOpenAI
 from .utils import retry_llm_call
 
 # Logger setup (assumes logging is configured in config.py or a dedicated module)
@@ -38,14 +38,14 @@ class LLMClient:
                 raise ValueError("AZURE_OPENAI_DEPLOYMENT_NAME is required for Azure OpenAI provider")
             
             try:
-                self.client = AzureOpenAI(
+                self.client = AsyncAzureOpenAI(
                     api_key=settings.AZURE_OPENAI_API_KEY,
                     api_version=settings.AZURE_OPENAI_API_VERSION,
                     azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
                 )
-                logger.info(f"Initialized Azure OpenAI client with deployment {self.deployment_name}")
+                logger.info(f"Initialized Async Azure OpenAI client with deployment {self.deployment_name}")
             except Exception as e:
-                logger.error(f"Failed to initialize Azure OpenAI client: {e}")
+                logger.error(f"Failed to initialize Async Azure OpenAI client: {e}")
                 raise
 
     # Generate a summary of the provided text with specified sections(gives the prompt text to the LLM)
@@ -77,11 +77,13 @@ class LLMClient:
         max_attempts=3,
         initial_wait=1.0,
         max_wait=10.0,
-        exceptions=(Exception,)
+        exceptions=(Exception,),  # Could specify openai.APIError, asyncio.TimeoutError, etc.
+        log_context="Azure OpenAI API call"
     )
     async def generate_content(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.7) -> str:
+        """Generate content asynchronously using the Azure OpenAI client."""
         try:
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that analyzes documents and provides concise summaries."},
@@ -95,7 +97,8 @@ class LLMClient:
                 logger.warning("No response generated from LLM")
                 return "No response generated"
                 
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content.strip()
+            return content
             
         except Exception as e:
             logger.error(f"Error generating content: {str(e)}")
