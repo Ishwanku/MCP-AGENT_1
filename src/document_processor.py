@@ -159,7 +159,7 @@ async def process_single_folder(session: aiohttp.ClientSession, folder_path: Pat
         2. Important Information: List any critical points or information that requires special attention
         """
         
-        # Get summary from LLM with retry mechanism
+        # Get summary from LLM
         summary_data = {
             "prompt": summary_prompt,
             "max_tokens": 1000,
@@ -269,14 +269,14 @@ async def create_final_document(state: DocumentState) -> DocumentState:
             # Get full paths for documents
             folder_path = input_dir / folder["folder_name"]
             document_paths = []
-            document_names = []  # Store just the file names
+            document_names = []
             for doc in folder["document_analyses"]:
                 doc_path = folder_path / doc["original_document_name"]
                 if not doc_path.exists():
                     logger.error(f"Document not found: {doc_path}")
                     continue
                 document_paths.append(str(doc_path))
-                document_names.append(doc["original_document_name"])  # Store just the name
+                document_names.append(doc["original_document_name"])
             
             if not document_paths:
                 logger.warning(f"No valid documents found in folder {folder['folder_name']}")
@@ -288,9 +288,9 @@ async def create_final_document(state: DocumentState) -> DocumentState:
             
             # Use full document paths for merging but names for display
             document_sets.append({
-                "name": folder['folder_name'],  # Remove section number prefix
-                "documents": document_paths,  # Keep full paths for actual merging
-                "document_names": document_names,  # Store names for display
+                "name": folder['folder_name'],
+                "documents": document_paths,
+                "document_names": document_names,
                 "summary": folder.get("summary", "No summary available"),
                 "summary_type": "comprehensive",
                 "include_sections": [

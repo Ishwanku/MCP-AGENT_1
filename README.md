@@ -28,7 +28,7 @@ mcp-agent/
 │   │       ├── document_parser.py
 │   │       ├── llm_client.py
 │   │       ├── config.py
-|   |       ├── search_client.py
+|   |       ├── style_manager.py
 │   │       └── utils.py
 │   ├── document_processor.py
 |   └── run.py
